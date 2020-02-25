@@ -1,6 +1,6 @@
 import { Directive, OnChanges, OnDestroy, Input, Output, EventEmitter,
   HostListener, ApplicationRef, ComponentRef, ElementRef, ViewContainerRef,
-  Injector, ReflectiveInjector, ComponentFactoryResolver } from '@angular/core';
+  Injector, ReflectiveInjector, ComponentFactoryResolver, EmbeddedViewRef } from '@angular/core';
 
 import { ColorPickerService } from './color-picker.service';
 import { ColorPickerComponent } from './color-picker.component';
@@ -18,6 +18,7 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
   private ignoreChanges: boolean = false;
 
   private cmpRef: ComponentRef<ColorPickerComponent>;
+  private viewAttachedToAppRef: boolean = false;
 
   @Input() colorPicker: string;
 
@@ -61,6 +62,7 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
 
   @Input() cpPresetLabel: string = 'Preset colors';
   @Input() cpPresetColors: string[];
+  @Input() cpPresetColorsClass: string = 'cp-preset-colors-class';
   @Input() cpMaxPresetColorsLength: number = 6;
 
   @Input() cpPresetEmptyMessage: string = 'No colors added';
@@ -72,13 +74,13 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
 
   @Input() cpRemoveColorButtonClass: string = 'cp-remove-color-button-class';
 
-  @Output() cpInputChange = new EventEmitter<any>(true);
+  @Output() cpInputChange = new EventEmitter<{input: string, value: number | string, color: string}>(true);
 
   @Output() cpToggleChange = new EventEmitter<boolean>(true);
 
-  @Output() cpSliderChange = new EventEmitter<any>(true);
-  @Output() cpSliderDragEnd = new EventEmitter<string>(true);
-  @Output() cpSliderDragStart = new EventEmitter<string>(true);
+  @Output() cpSliderChange = new EventEmitter<{slider: string, value: string | number, color: string}>(true);
+  @Output() cpSliderDragEnd = new EventEmitter<{slider: string, color: string}>(true);
+  @Output() cpSliderDragStart = new EventEmitter<{slider: string, color: string}>(true);
 
   @Output() colorPickerOpen = new EventEmitter<string>(true);
   @Output() colorPickerClose = new EventEmitter<string>(true);
@@ -108,8 +110,15 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
     private _service: ColorPickerService) {}
 
   ngOnDestroy(): void {
-    if (this.cmpRef !== undefined) {
+    if (this.cmpRef != null) {
+      if (this.viewAttachedToAppRef) {
+        this.appRef.detachView(this.cmpRef.hostView);
+      }
+
       this.cmpRef.destroy();
+
+      this.cmpRef = null;
+      this.dialog = null;
     }
   }
 
@@ -150,24 +159,36 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
       let vcRef = this.vcRef;
 
       this.dialogCreated = true;
+      this.viewAttachedToAppRef = false;
 
       if (this.cpUseRootViewContainer && this.cpDialogDisplay !== 'inline') {
         const classOfRootComponent = this.appRef.componentTypes[0];
-        const appInstance = this.injector.get(classOfRootComponent);
+        const appInstance = this.injector.get(classOfRootComponent, Injector.NULL);
 
-        vcRef = appInstance.vcRef || appInstance.viewContainerRef || this.vcRef;
+        if (appInstance !== Injector.NULL) {
+          vcRef = appInstance.vcRef || appInstance.viewContainerRef || this.vcRef;
 
-        if (vcRef === this.vcRef) {
-          console.warn('You are using cpUseRootViewContainer, ' +
-            'but the root component is not exposing viewContainerRef!' +
-            'Please expose it by adding \'public vcRef: ViewContainerRef\' to the constructor.');
+          if (vcRef === this.vcRef) {
+            console.warn('You are using cpUseRootViewContainer, ' +
+              'but the root component is not exposing viewContainerRef!' +
+              'Please expose it by adding \'public vcRef: ViewContainerRef\' to the constructor.');
+          }
+        } else {
+          this.viewAttachedToAppRef = true;
         }
       }
 
       const compFactory = this.cfr.resolveComponentFactory(ColorPickerComponent);
-      const injector = ReflectiveInjector.fromResolvedProviders([], vcRef.parentInjector);
 
-      this.cmpRef = vcRef.createComponent(compFactory, 0, injector, []);
+      if (this.viewAttachedToAppRef) {
+        this.cmpRef = compFactory.create(this.injector);
+        this.appRef.attachView(this.cmpRef.hostView);
+        document.body.appendChild((this.cmpRef.hostView as EmbeddedViewRef<any>).rootNodes[0] as HTMLElement);
+      } else {
+        const injector = ReflectiveInjector.fromResolvedProviders([], vcRef.parentInjector);
+
+        this.cmpRef = vcRef.createComponent(compFactory, 0, injector, []);
+      }
 
       this.cmpRef.instance.setupDialog(this, this.elRef, this.colorPicker,
         this.cpWidth, this.cpHeight, this.cpDialogDisplay, this.cpFallbackColor, this.cpColorMode,
@@ -175,11 +196,11 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
         this.cpIgnoredElements, this.cpSaveClickOutside, this.cpCloseClickOutside,
         this.cpUseRootViewContainer, this.cpPosition, this.cpPositionOffset,
         this.cpPositionRelativeToArrow, this.cpPresetLabel, this.cpPresetColors,
-        this.cpMaxPresetColorsLength, this.cpPresetEmptyMessage, this.cpPresetEmptyMessageClass,
-        this.cpOKButton, this.cpOKButtonClass, this.cpOKButtonText,
-        this.cpCancelButton, this.cpCancelButtonClass, this.cpCancelButtonText,
-        this.cpAddColorButton, this.cpAddColorButtonClass, this.cpAddColorButtonText,
-        this.cpRemoveColorButtonClass);
+        this.cpPresetColorsClass, this.cpMaxPresetColorsLength, this.cpPresetEmptyMessage,
+        this.cpPresetEmptyMessageClass, this.cpOKButton, this.cpOKButtonClass,
+        this.cpOKButtonText, this.cpCancelButton, this.cpCancelButtonClass,
+        this.cpCancelButtonText, this.cpAddColorButton, this.cpAddColorButtonClass,
+        this.cpAddColorButtonText, this.cpRemoveColorButtonClass);
 
       this.dialog = this.cmpRef.instance;
 
@@ -259,11 +280,11 @@ export class ColorPickerDirective implements OnChanges, OnDestroy {
     this.cpSliderChange.emit(event);
   }
 
-  public sliderDragEnd(event: any): void {
+  public sliderDragEnd(event: { slider: string, color: string }): void {
     this.cpSliderDragEnd.emit(event);
   }
 
-  public sliderDragStart(event: any): void {
+  public sliderDragStart(event: { slider: string, color: string }): void {
     this.cpSliderDragStart.emit(event);
   }
 

@@ -11,8 +11,8 @@ import { ColorPickerService } from './color-picker.service';
 
 @Component({
   selector: 'color-picker',
-  templateUrl: '../../dist/lib/color-picker.component.html',
-  styleUrls: [ '../../dist/lib/color-picker.component.css' ],
+  templateUrl: './color-picker.component.html',
+  styleUrls: [ './color-picker.component.css' ],
   encapsulation: ViewEncapsulation.None
 })
 export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
@@ -105,6 +105,7 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
 
   public cpPresetLabel: string;
   public cpPresetColors: string[];
+  public cpPresetColorsClass: string;
   public cpMaxPresetColorsLength: number;
 
   public cpPresetEmptyMessage: string;
@@ -203,11 +204,12 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
     cpOutputFormat: OutputFormat, cpDisableInput: boolean, cpIgnoredElements: any,
     cpSaveClickOutside: boolean, cpCloseClickOutside: boolean, cpUseRootViewContainer: boolean,
     cpPosition: string, cpPositionOffset: string, cpPositionRelativeToArrow: boolean,
-    cpPresetLabel: string, cpPresetColors: string[], cpMaxPresetColorsLength: number,
-    cpPresetEmptyMessage: string, cpPresetEmptyMessageClass: string, cpOKButton: boolean,
-    cpOKButtonClass: string, cpOKButtonText: string, cpCancelButton: boolean,
-    cpCancelButtonClass: string, cpCancelButtonText: string, cpAddColorButton: boolean,
-    cpAddColorButtonClass: string, cpAddColorButtonText: string, cpRemoveColorButtonClass: string): void
+    cpPresetLabel: string, cpPresetColors: string[], cpPresetColorsClass: string,
+    cpMaxPresetColorsLength: number, cpPresetEmptyMessage: string,
+    cpPresetEmptyMessageClass: string, cpOKButton: boolean, cpOKButtonClass: string,
+    cpOKButtonText: string, cpCancelButton: boolean, cpCancelButtonClass: string,
+    cpCancelButtonText: string, cpAddColorButton: boolean, cpAddColorButtonClass: string,
+    cpAddColorButtonText: string, cpRemoveColorButtonClass: string): void
   {
     this.setInitialColor(color);
 
@@ -251,6 +253,7 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
 
     this.setPresetConfig(cpPresetLabel, cpPresetColors);
 
+    this.cpPresetColorsClass = cpPresetColorsClass;
     this.cpMaxPresetColorsLength = cpMaxPresetColorsLength;
     this.cpPresetEmptyMessage = cpPresetEmptyMessage;
     this.cpPresetEmptyMessageClass = cpPresetEmptyMessageClass;
@@ -329,6 +332,10 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
 
       this.sliderH = this.hsva.h;
 
+      if (this.cpOutputFormat === 'hex' && this.cpAlphaChannel === 'disabled') {
+        this.hsva.a = 1;
+      }
+
       this.updateColorPicker(emit, update);
     }
   }
@@ -360,13 +367,17 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
       if (this.cpSaveClickOutside) {
         this.directiveInstance.colorSelected(this.outputColor);
       } else {
+        this.hsva = null;
+
         this.setColorFromString(this.initialColor, false);
 
         if (this.cpCmykEnabled) {
           this.directiveInstance.cmykChanged(this.cmykColor);
         }
 
-        this.directiveInstance.colorChanged(this.outputColor);
+        this.directiveInstance.colorChanged(this.initialColor);
+
+        this.directiveInstance.colorCanceled();
       }
 
       if (this.cpCloseClickOutside) {
@@ -388,6 +399,8 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   public onCancelColor(event: Event): void {
+    this.hsva = null;
+
     event.stopPropagation();
 
     this.setColorFromString(this.initialColor, true);
@@ -397,7 +410,7 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
         this.directiveInstance.cmykChanged(this.cmykColor);
       }
 
-      this.directiveInstance.colorChanged(this.outputColor, true);
+      this.directiveInstance.colorChanged(this.initialColor, true);
 
       this.closeColorPicker();
     }
@@ -963,36 +976,46 @@ export class ColorPickerComponent implements OnInit, OnDestroy, AfterViewInit {
       }
 
       let usePosition = this.cpPosition;
+
       if (this.cpPosition === 'auto') {
+        let usePositionX = 'right';
+        let usePositionY = 'bottom';
+
         const winWidth = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
         const winHeight = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
 
-        let usePositionX = 'right';
         if (this.left + this.cpWidth > winWidth) {
           usePositionX = 'left';
         }
 
-        let usePositionY = 'bottom';
         if (this.top + dialogHeight > winHeight) {
           usePositionY = 'top';
         }
 
-        usePosition =  usePositionX + '-' + usePositionY;
+        usePosition = usePositionX + '-' + usePositionY;
       }
 
       this.cpUsePosition = usePosition;
 
-      if (usePosition === 'right-top') {
+      if (usePosition === 'top') {
+        this.arrowTop = dialogHeight - 1;
+
+        this.top -= dialogHeight + this.dialogArrowSize;
+        this.left += this.cpPositionOffset / 100 * boxDirective.width - this.dialogArrowOffset;
+      } else if (usePosition === 'bottom') {
+        this.top += boxDirective.height + this.dialogArrowSize;
+        this.left += this.cpPositionOffset / 100 * boxDirective.width - this.dialogArrowOffset;
+      } else if (usePosition === 'top-left' || usePosition === 'left-top') {
         this.top -= dialogHeight - boxDirective.height + boxDirective.height * this.cpPositionOffset / 100;
-        this.left += boxDirective.width + this.dialogArrowSize - 2;
-      } else if (usePosition === 'left-top') {
+        this.left -= this.cpWidth + this.dialogArrowSize - 2 - this.dialogArrowOffset;
+      } else if (usePosition === 'top-right' || usePosition === 'right-top') {
         this.top -= dialogHeight - boxDirective.height + boxDirective.height * this.cpPositionOffset / 100;
+        this.left += boxDirective.width + this.dialogArrowSize - 2 - this.dialogArrowOffset;
+      } else if (usePosition === 'left' || usePosition === 'bottom-left' ||  usePosition === 'left-bottom') {
+        this.top += boxDirective.height * this.cpPositionOffset / 100 - this.dialogArrowOffset;
         this.left -= this.cpWidth + this.dialogArrowSize - 2;
-      } else if (usePosition === 'left-bottom') {
-        this.top += boxDirective.height * this.cpPositionOffset / 100;
-        this.left -= this.cpWidth + this.dialogArrowSize - 2;
-      } else if (usePosition === 'right-bottom') {
-        this.top += boxDirective.height * this.cpPositionOffset / 100;
+      } else { // usePosition === 'right' || usePosition === 'bottom-right' || usePosition === 'right-bottom'
+        this.top += boxDirective.height * this.cpPositionOffset / 100 - this.dialogArrowOffset;
         this.left += boxDirective.width + this.dialogArrowSize - 2;
       }
     }
